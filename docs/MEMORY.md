@@ -9,6 +9,7 @@
 - [多账号轮询](memory/multi-account-rotation.md) - v0.2.0 多账号 round-robin 负载均衡设计
 - [YAML 配置热加载](memory/config-hot-reload.md) - v0.5.0 config.yaml + fsnotify 实时生效
 - [OpenRouter 兜底](memory/openrouter-fallback.md) - v0.6.0 多下游 key + sk-or-* 兜底转发
+- [GHCR 自动发布](memory/github-actions-docker.md) - GitHub Actions 工作流：push/tag 自动构建多架构 Docker 镜像到 ghcr.io
 
 ## 生产部署
 - 主机: `remote3` (Los Angeles, US, 38.55.179.54)
@@ -36,6 +37,7 @@
 - 2026-04-17: **绑定式 donor key（v0.10.0）** —— 众筹登录成功后自动发放一把 `sk-or-v1-<64hex>` 格式的 API key（外观与真实 OpenRouter v1 key 完全一致，便于贡献者直接放入任何支持 OR 的客户端），作为对贡献者的反哺。该 key 写入 `auths/<label>.json` 的 `donorKey` 字段，与其上游账号严格 1:1；持有者用它做客户端 Bearer 调 `/v1/*` 时，proxy 会 pin 到对应上游账号：**账号限流 → 429、熔断 → 503、全部不跨账号兜底**。KeyPool 新增 `donors []string` 平行数组 + `ResolveDonorKey/SetDonorKey/IsBroken`；authGuard 按值（非前缀）查 donor 表，命中 pin、未命中再 fall through 到 sk-or OR 转发，所以注册的 donor token 不会被误当作 OR key；proxy 单独 `servePinned` 分支。admin 面板每行增 donor 列（生成/重置/复制/清除/自定义），`POST/DELETE /admin/api/keys/{label}/donor` 直接改写凭证 JSON。生成 key 时对全局 donors + server/auth api_keys 做冲突检测并重试 8 次，保证唯一。设计目的：防止贡献者恶意使用 key 清空整个号池
 - 2026-04-18: **双激励模式（v0.11.0）** —— 管理员可在 `incentive.mode` 配置项中选 `donor_key`（默认，继承 v0.10.0 行为）或 `redeem_code`（发放一次性卡密）。卡密池 `incentive.redeem_codes_file` 一行一条，`#` 开头与空行忽略；RedeemStore 互斥锁保护 `Pop`（发放即从文件原子删除）和 `Append`（批量去重追加）。OAuth 成功路径按模式二选一地返回 `donor_key` 或 `redeem_code`+`redeem_usage`，池为空时不阻断登录（凭证仍入池，贡献者看到"奖励池已空"提示）。管理面板新增激励 stat 卡 + 激励配置面板 + `/admin/api/redeem` GET/POST 端点；`reloader.onConfig` 回调把 `redeem_codes_file` 变更同步到 RedeemStore
 - 2026-04-18: **v0.11.0 安全加固** —— 三处代码审查发现的问题全部修复：(1) **critical**：`/public/oauth/poll` 新增 per-fingerprint 结果缓存（`AdminHandler.pollCache` + 10 min TTL），同一 fingerprint 重复轮询不会再重复消费卡密/重新生成 donor key/创建重复 auths 文件；(2) `RedeemStore.Pop` 写盘失败时返回 `("", false)` 而非静默吞错，杜绝"code 已返还但文件未更新 → 下次 Pop 重复发放"的数据损坏；(3) donor key 生成 TOCTOU 闭合 —— 新增 `AdminHandler.donorMu` 跨所有 mint 路径（admin donor endpoint + oauthPoll）串行化 `generateDonorKey → writeCredentialDonor → reloader.Reload`，8 次重试仍冲突改为返回 error 而非未检查的 candidate
+- 2026-05-22: **GHCR 自动发布工作流** —— 新增 `.github/workflows/docker-publish.yml`：push master / tag v* / PR / 手动触发；多架构 `linux/amd64+arm64`；tag 策略 `latest + semver + sha-`；走 `GITHUB_TOKEN` 推 `ghcr.io/guji08233/freebuff2api`；附带 SBOM + provenance attestation。首次推送后需手工把 package 设为 public。详见 `memory/github-actions-docker.md`
 
 ## 实测性能（v0.1.0）
 - TTFT: 2.2 ~ 3.2s（含 runId 注册 ~700ms）
