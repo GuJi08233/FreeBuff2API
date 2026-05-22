@@ -20,6 +20,21 @@ services:
       - ./config.yaml:/app/config.yaml
       - ./auths:/app/auths
       - ./token.key:/app/token.key:ro
+    # ── Outbound HTTP proxy (optional) ──
+    # Uncomment to route upstream traffic (codebuff + OpenRouter fallback)
+    # through a proxy. Only http:// and https:// schemes are supported;
+    # socks5 is NOT supported. Values are read at process start — change
+    # them and `docker compose restart freebuff2api` to apply.
+    #
+    # `host.docker.internal` resolves to the host's loopback. Mac / Windows
+    # Desktop maps it automatically; on Linux the `extra_hosts` line below
+    # is required.
+    # environment:
+    #   - HTTPS_PROXY=http://host.docker.internal:7890
+    #   - HTTP_PROXY=http://host.docker.internal:7890
+    #   - NO_PROXY=localhost,127.0.0.1,172.17.0.1
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
     networks:
       - freebuff-net
     healthcheck:

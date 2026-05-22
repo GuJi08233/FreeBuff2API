@@ -56,6 +56,11 @@ type ProxyHandler struct {
 func NewProxyHandler(reloader *Reloader, pool *KeyPool) *ProxyHandler {
 	httpClient := &http.Client{
 		Transport: &http.Transport{
+			// Respect HTTPS_PROXY / HTTP_PROXY / NO_PROXY (and lowercase variants).
+			// Only http/https schemes are supported here — socks5 is intentionally
+			// out of scope. Env vars are read once at startup; changing them at
+			// runtime has no effect (stdlib sync.Once caches the parse).
+			Proxy: http.ProxyFromEnvironment,
 			DialContext: (&net.Dialer{
 				Timeout:   30 * time.Second,
 				KeepAlive: 30 * time.Second,

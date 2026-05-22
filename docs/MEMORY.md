@@ -10,6 +10,7 @@
 - [YAML 配置热加载](memory/config-hot-reload.md) - v0.5.0 config.yaml + fsnotify 实时生效
 - [OpenRouter 兜底](memory/openrouter-fallback.md) - v0.6.0 多下游 key + sk-or-* 兜底转发
 - [GHCR 自动发布](memory/github-actions-docker.md) - GitHub Actions 工作流：push/tag 自动构建多架构 Docker 镜像到 ghcr.io
+- [出站 HTTP 代理](memory/http-proxy.md) - v0.12.0 让自定义 Transport 走 HTTPS_PROXY/HTTP_PROXY 环境变量,Docker 部署友好
 
 ## 生产部署
 - 主机: `remote3` (Los Angeles, US, 38.55.179.54)
@@ -38,6 +39,7 @@
 - 2026-04-18: **双激励模式（v0.11.0）** —— 管理员可在 `incentive.mode` 配置项中选 `donor_key`（默认，继承 v0.10.0 行为）或 `redeem_code`（发放一次性卡密）。卡密池 `incentive.redeem_codes_file` 一行一条，`#` 开头与空行忽略；RedeemStore 互斥锁保护 `Pop`（发放即从文件原子删除）和 `Append`（批量去重追加）。OAuth 成功路径按模式二选一地返回 `donor_key` 或 `redeem_code`+`redeem_usage`，池为空时不阻断登录（凭证仍入池，贡献者看到"奖励池已空"提示）。管理面板新增激励 stat 卡 + 激励配置面板 + `/admin/api/redeem` GET/POST 端点；`reloader.onConfig` 回调把 `redeem_codes_file` 变更同步到 RedeemStore
 - 2026-04-18: **v0.11.0 安全加固** —— 三处代码审查发现的问题全部修复：(1) **critical**：`/public/oauth/poll` 新增 per-fingerprint 结果缓存（`AdminHandler.pollCache` + 10 min TTL），同一 fingerprint 重复轮询不会再重复消费卡密/重新生成 donor key/创建重复 auths 文件；(2) `RedeemStore.Pop` 写盘失败时返回 `("", false)` 而非静默吞错，杜绝"code 已返还但文件未更新 → 下次 Pop 重复发放"的数据损坏；(3) donor key 生成 TOCTOU 闭合 —— 新增 `AdminHandler.donorMu` 跨所有 mint 路径（admin donor endpoint + oauthPoll）串行化 `generateDonorKey → writeCredentialDonor → reloader.Reload`，8 次重试仍冲突改为返回 error 而非未检查的 candidate
 - 2026-05-22: **GHCR 自动发布工作流** —— 新增 `.github/workflows/docker-publish.yml`：push master / tag v* / PR / 手动触发；多架构 `linux/amd64+arm64`；tag 策略 `latest + semver + sha-`；走 `GITHUB_TOKEN` 推 `ghcr.io/guji08233/freebuff2api`；附带 SBOM + provenance attestation。首次推送后需手工把 package 设为 public。详见 `memory/github-actions-docker.md`
+- 2026-05-22: **出站 HTTP 代理（v0.12.0）** —— `internal/app/proxy.go` 的自定义 `http.Transport` 加 `Proxy: http.ProxyFromEnvironment`,使 `HTTPS_PROXY/HTTP_PROXY/NO_PROXY` 环境变量在 Docker 部署中生效。同一 client 被 codebuff 主路径、`agent-runs`、`session` 创建、OpenRouter 兜底共用,所以**所有上游出站都会走代理**。只支持 http/https scheme（不开放 socks5）；env 在进程启动时被 `sync.Once` 缓存,改 proxy 需 `docker compose restart`,无法像 config.yaml 那样热加载。`docker-compose.yml` 加了注释化示例 + Linux 必需的 `extra_hosts: host.docker.internal:host-gateway`。契约测试 `TestTransportHonoursProxyEnv` 用反射比对函数指针锁死实现。详见 `memory/http-proxy.md`
 
 ## 实测性能（v0.1.0）
 - TTFT: 2.2 ~ 3.2s（含 runId 注册 ~700ms）

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -352,4 +353,33 @@ func TestRetryConcurrent(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+// TestTransportHonoursProxyEnv verifies that NewProxyHandler builds an
+// http.Transport that resolves outbound proxies via HTTPS_PROXY / HTTP_PROXY /
+// NO_PROXY environment variables. Required for Docker users behind a corporate
+// or local HTTP proxy — without this the custom Transport ignores them.
+//
+// The check compares Transport.Proxy's function pointer against the stdlib
+// http.ProxyFromEnvironment symbol. If we ever switch to a wrapper function
+// this test must be updated to reflect the new contract.
+func TestTransportHonoursProxyEnv(t *testing.T) {
+	pool := NewKeyPoolWithLabels([]string{"k"}, []string{"test"})
+	cfg := &Config{}
+	cfg.applyDefaults()
+	reloader := NewReloader("/dev/null", cfg, pool, nil)
+	p := NewProxyHandler(reloader, pool)
+
+	tr, ok := p.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport is %T, want *http.Transport", p.client.Transport)
+	}
+	if tr.Proxy == nil {
+		t.Fatal("transport.Proxy is nil — HTTPS_PROXY/HTTP_PROXY env vars will be ignored")
+	}
+	got := reflect.ValueOf(tr.Proxy).Pointer()
+	want := reflect.ValueOf(http.ProxyFromEnvironment).Pointer()
+	if got != want {
+		t.Errorf("transport.Proxy func pointer = %#x, want http.ProxyFromEnvironment (%#x)", got, want)
+	}
 }
